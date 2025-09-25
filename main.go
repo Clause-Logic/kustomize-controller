@@ -287,6 +287,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	cancelHealthCheckOnNewRevision, err := features.Enabled(features.CancelHealthCheckOnNewRevision)
+	if err != nil {
+		setupLog.Error(err, "unable to check feature gate "+features.CancelHealthCheckOnNewRevision)
+		os.Exit(1)
+	}
+
 	allowExternalArtifact, err := features.Enabled(features.ExternalArtifact)
 	if err != nil {
 		setupLog.Error(err, "unable to check feature gate "+features.ExternalArtifact)
@@ -307,29 +313,30 @@ func main() {
 	}
 
 	if err = (&controller.KustomizationReconciler{
-		AdditiveCELDependencyCheck: additiveCELDependencyCheck,
-		AllowExternalArtifact:      allowExternalArtifact,
-		APIReader:                  mgr.GetAPIReader(),
-		ArtifactFetchRetries:       httpRetry,
-		Client:                     mgr.GetClient(),
-		ClusterReader:              clusterReader,
-		ConcurrentSSA:              concurrentSSA,
-		ControllerName:             controllerName,
-		DefaultServiceAccount:      defaultServiceAccount,
-		DependencyRequeueInterval:  requeueDependency,
-		DisallowedFieldManagers:    disallowedFieldManagers,
-		EventRecorder:              eventRecorder,
-		FailFast:                   failFast,
-		GroupChangeLog:             groupChangeLog,
-		KubeConfigOpts:             kubeConfigOpts,
-		Mapper:                     restMapper,
-		Metrics:                    metricsH,
-		NoCrossNamespaceRefs:       aclOptions.NoCrossNamespaceRefs,
-		NoRemoteBases:              noRemoteBases,
-		SOPSAgeSecret:              sopsAgeSecret,
-		StatusManager:              fmt.Sprintf("gotk-%s", controllerName),
-		StrictSubstitutions:        strictSubstitutions,
-		TokenCache:                 tokenCache,
+		AdditiveCELDependencyCheck:     additiveCELDependencyCheck,
+		AllowExternalArtifact:          allowExternalArtifact,
+		APIReader:                      mgr.GetAPIReader(),
+		ArtifactFetchRetries:           httpRetry,
+		CancelHealthCheckOnNewRevision: cancelHealthCheckOnNewRevision,
+		Client:                         mgr.GetClient(),
+		ClusterReader:                  clusterReader,
+		ConcurrentSSA:                  concurrentSSA,
+		ControllerName:                 controllerName,
+		DefaultServiceAccount:          defaultServiceAccount,
+		DependencyRequeueInterval:      requeueDependency,
+		DisallowedFieldManagers:        disallowedFieldManagers,
+		EventRecorder:                  eventRecorder,
+		FailFast:                       failFast,
+		GroupChangeLog:                 groupChangeLog,
+		KubeConfigOpts:                 kubeConfigOpts,
+		Mapper:                         restMapper,
+		Metrics:                        metricsH,
+		NoCrossNamespaceRefs:           aclOptions.NoCrossNamespaceRefs,
+		NoRemoteBases:                  noRemoteBases,
+		SOPSAgeSecret:                  sopsAgeSecret,
+		StatusManager:                  fmt.Sprintf("gotk-%s", controllerName),
+		StrictSubstitutions:            strictSubstitutions,
+		TokenCache:                     tokenCache,
 	}).SetupWithManager(ctx, mgr, controller.KustomizationReconcilerOptions{
 		RateLimiter:            runtimeCtrl.GetRateLimiter(rateLimiterOptions),
 		WatchConfigsPredicate:  watchConfigsPredicate,

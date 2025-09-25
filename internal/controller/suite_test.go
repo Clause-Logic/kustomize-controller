@@ -174,17 +174,18 @@ func TestMain(m *testing.M) {
 		kstatusInProgressCheck = kcheck.NewInProgressChecker(testEnv.Client)
 		kstatusInProgressCheck.DisableFetch = true
 		reconciler = &KustomizationReconciler{
-			ControllerName:            controllerName,
-			StatusManager:             fmt.Sprintf("gotk-%s", controllerName),
-			Client:                    testEnv,
-			Mapper:                    testEnv.GetRESTMapper(),
-			APIReader:                 testEnv,
-			EventRecorder:             testEnv.GetEventRecorderFor(controllerName),
-			Metrics:                   testMetricsH,
-			DependencyRequeueInterval: 2 * time.Second,
-			ConcurrentSSA:             4,
-			DisallowedFieldManagers:   []string{overrideManagerName},
-			SOPSAgeSecret:             sopsAgeSecret,
+			CancelHealthCheckOnNewRevision: true,
+			ControllerName:                 controllerName,
+			StatusManager:                  fmt.Sprintf("gotk-%s", controllerName),
+			Client:                         testEnv,
+			Mapper:                         testEnv.GetRESTMapper(),
+			APIReader:                      testEnv,
+			EventRecorder:                  testEnv.GetEventRecorderFor(controllerName),
+			Metrics:                        testMetricsH,
+			DependencyRequeueInterval:      2 * time.Second,
+			ConcurrentSSA:                  4,
+			DisallowedFieldManagers:        []string{overrideManagerName},
+			SOPSAgeSecret:                  sopsAgeSecret,
 		}
 		if err := (reconciler).SetupWithManager(ctx, testEnv, KustomizationReconcilerOptions{
 			WatchConfigsPredicate:  predicate.Not(predicate.Funcs{}),

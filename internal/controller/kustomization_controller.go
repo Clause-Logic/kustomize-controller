@@ -114,11 +114,12 @@ type KustomizationReconciler struct {
 
 	// Feature gates
 
-	AdditiveCELDependencyCheck bool
-	AllowExternalArtifact      bool
-	FailFast                   bool
-	GroupChangeLog             bool
-	StrictSubstitutions        bool
+	AdditiveCELDependencyCheck     bool
+	AllowExternalArtifact          bool
+	CancelHealthCheckOnNewRevision bool
+	FailFast                       bool
+	GroupChangeLog                 bool
+	StrictSubstitutions            bool
 }
 
 func (r *KustomizationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -492,6 +493,7 @@ func (r *KustomizationReconciler) reconcile(
 		resourceManager,
 		patcher,
 		obj,
+		src,
 		revision,
 		originRevision,
 		isNewRevision,
@@ -936,6 +938,7 @@ func (r *KustomizationReconciler) checkHealth(ctx context.Context,
 	manager *ssa.ResourceManager,
 	patcher *patch.SerialPatcher,
 	obj *kustomizev1.Kustomization,
+	src sourcev1.Source,
 	revision string,
 	originRevision string,
 	isNewRevision bool,
@@ -982,15 +985,60 @@ func (r *KustomizationReconciler) checkHealth(ctx context.Context,
 		return fmt.Errorf("unable to update the healthy status to progressing: %w", err)
 	}
 
+	// Check if we should cancel health checks on new revisions
+	cancelOnNewRevision := r.CancelHealthCheckOnNewRevision
+
 	// Check the health with a default timeout of 30sec shorter than the reconciliation interval.
-	if err := manager.WaitForSet(toCheck, ssa.WaitOptions{
-		Interval: 5 * time.Second,
-		Timeout:  obj.GetTimeout(),
-		FailFast: r.FailFast,
-	}); err != nil {
-		conditions.MarkFalse(obj, meta.ReadyCondition, meta.HealthCheckFailedReason, "%s", err)
-		conditions.MarkFalse(obj, meta.HealthyCondition, meta.HealthCheckFailedReason, "%s", err)
-		return fmt.Errorf("health check failed after %s: %w", time.Since(checkStart).String(), err)
+	var healthErr error
+	if cancelOnNewRevision {
+		// Create a cancellable context for health checks that monitors for new revisions
+		healthCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		// Start monitoring for new revisions to allow early cancellation
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-healthCtx.Done():
+					return
+				case <-ticker.C:
+					// Get the latest source artifact
+					latestSrc, err := r.getSource(ctx, obj)
+					if err == nil && latestSrc.GetArtifact() != nil {
+						if latestSrc.GetArtifact().Revision != revision {
+							ctrl.LoggerFrom(ctx).Info("New revision detected during health check, cancelling",
+								"current", revision,
+								"new", latestSrc.GetArtifact().Revision)
+							cancel()
+							return
+						}
+					}
+				}
+			}
+		}()
+
+		// Use the new cancellable WaitForSetWithContext
+		healthErr = manager.WaitForSetWithContext(healthCtx, toCheck, ssa.WaitOptions{
+			Interval: 5 * time.Second,
+			Timeout:  obj.GetTimeout(),
+			FailFast: r.FailFast,
+		})
+	} else {
+		// Use traditional WaitForSet without cancellation
+		healthErr = manager.WaitForSet(toCheck, ssa.WaitOptions{
+			Interval: 5 * time.Second,
+			Timeout:  obj.GetTimeout(),
+			FailFast: r.FailFast,
+		})
+	}
+
+	if healthErr != nil {
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.HealthCheckFailedReason, "%s", healthErr)
+		conditions.MarkFalse(obj, meta.HealthyCondition, meta.HealthCheckFailedReason, "%s", healthErr)
+		return fmt.Errorf("health check failed after %s: %w", time.Since(checkStart).String(), healthErr)
 	}
 
 	// Emit recovery event if the previous health check failed.
